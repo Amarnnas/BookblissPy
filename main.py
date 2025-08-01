@@ -5,8 +5,22 @@
 Sales & Expense Management System
 """
 
-import tkinter as tk
-from tkinter import ttk, messagebox, simpledialog
+try:
+    import tkinter as tk
+    from tkinter import ttk, messagebox, simpledialog
+except ImportError:
+    print("Error: tkinter is not available on this system.")
+    print("\nTo fix this issue:")
+    print("1. On Ubuntu/Debian: sudo apt-get install python3-tk")
+    print("2. On Fedora/RHEL: sudo dnf install python3-tkinter")
+    print("3. On macOS: tkinter should be included with Python")
+    print("4. On Windows: tkinter should be included with Python")
+    print("\nIf you're using a virtual environment, you may need to:")
+    print("- Deactivate the virtual environment")
+    print("- Install tkinter system-wide")
+    print("- Recreate the virtual environment")
+    exit(1)
+
 import json
 import os
 from datetime import datetime

@@ -15,10 +15,10 @@ from typing import Dict, List, Any
 
 # الألوان والتصميم
 COLORS = {
-    'primary': '#eeca11ff',      # أصفر ذهبي
-    'secondary': '#f2f2f2ff',    # رمادي فاتح
-    'accent': '#060685ff',       # أزرق داكن
-    'background': '#ffffff',     # أبيض
+    'primary': '#eeca11',      # أصفر ذهبي
+    'secondary': '#f2f2f2',    # رمادي فاتح
+    'accent': '#060685',       # أزرق داكن
+    'background': '#d4d2d2',     # أبيض
     'text': '#333333',          # رمادي داكن
     'success': '#28a745',       # أخضر
     'warning': '#ffc107',       # أصفر تحذيري

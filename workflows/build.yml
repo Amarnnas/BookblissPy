@@ -1,0 +1,25 @@
+# .github/workflows/build.yml
+name: Build EXE
+
+on:
+  push:
+    branches: [main]      # يتم التنفيذ عند كل Push للفرع الرئيسي
+
+jobs:
+  build:
+    runs-on: windows-latest  # النظام الذي سيبني عليه (ويندوز)
+    steps:
+      - uses: actions/checkout@v3   # تحميل ملفات المستودع
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'    # اختر نسخة بايثون المناسبة
+      - name: Install dependencies
+        run: pip install pyinstaller   # تثبيت PyInstaller
+      - name: Build with PyInstaller
+        run: pyinstaller --onefile main.py   # بناء exe
+      - name: Upload artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: exe
+          path: dist/main.exe   # ملف exe الناتج

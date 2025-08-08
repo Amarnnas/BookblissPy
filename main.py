@@ -773,7 +773,8 @@ class SalesManagementSystem:
         inventory_window.title("إدارة المخزون")
         inventory_window.geometry("800x600")
         inventory_window.configure(bg=COLORS['background'])
-        
+        inventory_window.grab_set()
+
         # العنوان
         title_label = tk.Label(
             inventory_window,
@@ -783,49 +784,91 @@ class SalesManagementSystem:
             fg=COLORS['accent']
         )
         title_label.pack(pady=10)
-        
+
         # جدول المخزون
         inventory_frame = tk.Frame(inventory_window)
         inventory_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
-        
+
         columns = ('الاسم', 'السعر', 'المخزون', 'الوصف')
         inventory_tree = ttk.Treeview(inventory_frame, columns=columns, show='headings', height=15)
-        
+
         for col in columns:
             inventory_tree.heading(col, text=col)
             inventory_tree.column(col, width=150, anchor='center')
-        
+
         inventory_scrollbar = ttk.Scrollbar(inventory_frame, orient=tk.VERTICAL, command=inventory_tree.yview)
         inventory_tree.configure(yscrollcommand=inventory_scrollbar.set)
-        
+
         inventory_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         inventory_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
+
         # تحديث عرض المخزون
         def update_inventory_display():
+            selected_iid = inventory_tree.selection()
+            
             for item in inventory_tree.get_children():
                 inventory_tree.delete(item)
-            
-            for item in self.data['inventory']:
-                inventory_tree.insert('', 'end', values=(
+
+            for item in sorted(self.data['inventory'], key=lambda x: x['name']):
+                inventory_tree.insert('', 'end', iid=item['id'], values=(
                     item['name'],
                     f"{item['price']:.2f}",
                     item['stock'],
                     item.get('description', '')
                 ))
-        
+            
+            if selected_iid and inventory_tree.exists(selected_iid[0]):
+                inventory_tree.selection_set(selected_iid[0])
+
         update_inventory_display()
-        
+
         # أزرار العمليات
         buttons_frame = tk.Frame(inventory_window, bg=COLORS['background'])
         buttons_frame.pack(fill=tk.X, padx=20, pady=10)
-        
+
         def add_product():
             self.add_product_dialog(update_inventory_display)
-        
+
+        def edit_product():
+            selected_iid = inventory_tree.selection()
+            if not selected_iid:
+                messagebox.showwarning("تحذير", "يرجى اختيار منتج لتعديله", parent=inventory_window)
+                return
+            
+            product_id = selected_iid[0]
+            product_to_edit = next((p for p in self.data['inventory'] if p['id'] == product_id), None)
+            
+            if product_to_edit:
+                self.edit_product_dialog(product_to_edit, update_inventory_display)
+
+        def delete_product():
+            selected_iid = inventory_tree.selection()
+            if not selected_iid:
+                messagebox.showwarning("تحذير", "يرجى اختيار منتج لحذفه", parent=inventory_window)
+                return
+            
+            product_id = selected_iid[0]
+            product_to_delete = next((p for p in self.data['inventory'] if p['id'] == product_id), None)
+            
+            if product_to_delete:
+                product_name = product_to_delete['name']
+                confirm = messagebox.askyesno("تأكيد الحذف", f"هل أنت متأكد أنك تريد حذف المنتج '{product_name}'؟\nلا يمكن التراجع عن هذا الإجراء.", parent=inventory_window)
+                if confirm:
+                    self.data['inventory'].remove(product_to_delete)
+                    self.save_data()
+                    update_inventory_display()
+                    self.update_displays()
+                    messagebox.showinfo("نجح", f"تم حذف المنتج '{product_name}' بنجاح.", parent=inventory_window)
+
         add_btn = ModernButton(buttons_frame, text="إضافة منتج", command=add_product, style="success")
         add_btn.pack(side=tk.LEFT, padx=10)
-        
+
+        edit_btn = ModernButton(buttons_frame, text="تعديل المنتج", command=edit_product, style="primary")
+        edit_btn.pack(side=tk.LEFT, padx=10)
+
+        delete_btn = ModernButton(buttons_frame, text="حذف المنتج", command=delete_product, style="danger")
+        delete_btn.pack(side=tk.LEFT, padx=10)
+
         close_btn = ModernButton(buttons_frame, text="إغلاق", command=inventory_window.destroy, style="secondary")
         close_btn.pack(side=tk.RIGHT, padx=10)
     
@@ -886,16 +929,20 @@ class SalesManagementSystem:
             description = desc_var.get().strip()
             
             if not name or not price_str or not stock_str:
-                messagebox.showerror("خطأ", "يرجى ملء جميع الحقول المطلوبة")
+                messagebox.showerror("خطأ", "يرجى ملء جميع الحقول المطلوبة", parent=dialog)
                 return
             
+            if any(p['name'].lower() == name.lower() for p in self.data['inventory']):
+                messagebox.showerror("خطأ", "اسم المنتج موجود بالفعل.", parent=dialog)
+                return
+
             try:
                 price = float(price_str)
                 stock = int(stock_str)
                 if price < 0 or stock < 0:
                     raise ValueError()
             except ValueError:
-                messagebox.showerror("خطأ", "يرجى إدخال قيم صحيحة للسعر والكمية")
+                messagebox.showerror("خطأ", "يرجى إدخال قيم صحيحة للسعر والكمية", parent=dialog)
                 return
             
             # إنشاء المنتج الجديد
@@ -916,7 +963,7 @@ class SalesManagementSystem:
             if callback:
                 callback()
             
-            messagebox.showinfo("نجح", f"تم إضافة المنتج '{name}' بنجاح")
+            messagebox.showinfo("نجح", f"تم إضافة المنتج '{name}' بنجاح", parent=dialog)
             dialog.destroy()
         
         save_btn = ModernButton(buttons_frame, text="حفظ", command=save_product, style="success")
@@ -924,7 +971,101 @@ class SalesManagementSystem:
         
         cancel_btn = ModernButton(buttons_frame, text="إلغاء", command=dialog.destroy, style="secondary")
         cancel_btn.pack(side=tk.LEFT)
-    
+
+    def edit_product_dialog(self, product, callback=None):
+        """حوار تعديل منتج موجود"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("تعديل منتج")
+        dialog.geometry("400x350")
+        dialog.configure(bg=COLORS['background'])
+        dialog.grab_set()
+
+        # العنوان
+        title_label = tk.Label(
+            dialog,
+            text="تعديل منتج",
+            font=('Arial', FONT_SIZES['large'], 'bold'),
+            bg=COLORS['background'],
+            fg=COLORS['accent']
+        )
+        title_label.pack(pady=10)
+
+        # إطار الحقول
+        fields_frame = tk.Frame(dialog, bg=COLORS['background'])
+        fields_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=10)
+
+        # اسم المنتج
+        tk.Label(fields_frame, text="اسم المنتج:", bg=COLORS['background'], font=('Arial', FONT_SIZES['medium'])).pack(anchor='w', pady=(0, 5))
+        name_var = tk.StringVar(value=product['name'])
+        name_entry = tk.Entry(fields_frame, textvariable=name_var, width=30, font=('Arial', FONT_SIZES['medium']))
+        name_entry.pack(fill=tk.X, pady=(0, 10))
+
+        # السعر
+        tk.Label(fields_frame, text="السعر:", bg=COLORS['background'], font=('Arial', FONT_SIZES['medium'])).pack(anchor='w', pady=(0, 5))
+        price_var = tk.StringVar(value=str(product['price']))
+        price_entry = tk.Entry(fields_frame, textvariable=price_var, width=30, font=('Arial', FONT_SIZES['medium']))
+        price_entry.pack(fill=tk.X, pady=(0, 10))
+
+        # الكمية
+        tk.Label(fields_frame, text="الكمية:", bg=COLORS['background'], font=('Arial', FONT_SIZES['medium'])).pack(anchor='w', pady=(0, 5))
+        stock_var = tk.StringVar(value=str(product['stock']))
+        stock_entry = tk.Entry(fields_frame, textvariable=stock_var, width=30, font=('Arial', FONT_SIZES['medium']))
+        stock_entry.pack(fill=tk.X, pady=(0, 10))
+
+        # الوصف
+        tk.Label(fields_frame, text="الوصف (اختياري):", bg=COLORS['background'], font=('Arial', FONT_SIZES['medium'])).pack(anchor='w', pady=(0, 5))
+        desc_var = tk.StringVar(value=product.get('description', ''))
+        desc_entry = tk.Entry(fields_frame, textvariable=desc_var, width=30, font=('Arial', FONT_SIZES['medium']))
+        desc_entry.pack(fill=tk.X, pady=(0, 20))
+
+        # أزرار العمليات
+        buttons_frame = tk.Frame(fields_frame, bg=COLORS['background'])
+        buttons_frame.pack(fill=tk.X)
+
+        def save_changes():
+            name = name_var.get().strip()
+            price_str = price_var.get().strip()
+            stock_str = stock_var.get().strip()
+            description = desc_var.get().strip()
+
+            if not name or not price_str or not stock_str:
+                messagebox.showerror("خطأ", "يرجى ملء جميع الحقول المطلوبة", parent=dialog)
+                return
+
+            try:
+                price = float(price_str)
+                stock = int(stock_str)
+                if price < 0 or stock < 0:
+                    raise ValueError()
+            except ValueError:
+                messagebox.showerror("خطأ", "يرجى إدخال قيم صحيحة للسعر والكمية", parent=dialog)
+                return
+            
+            if any(p['name'].lower() == name.lower() and p['id'] != product['id'] for p in self.data['inventory']):
+                messagebox.showerror("خطأ", "اسم المنتج مستخدم بالفعل.", parent=dialog)
+                return
+
+            # تحديث المنتج
+            product['name'] = name
+            product['price'] = price
+            product['stock'] = stock
+            product['description'] = description
+            
+            self.save_data()
+
+            # تحديث العروض
+            self.update_displays()
+            if callback:
+                callback()
+
+            dialog.destroy()
+
+        save_btn = ModernButton(buttons_frame, text="حفظ التعديلات", command=save_changes, style="success")
+        save_btn.pack(side=tk.LEFT, padx=(0, 10))
+
+        cancel_btn = ModernButton(buttons_frame, text="إلغاء", command=dialog.destroy, style="secondary")
+        cancel_btn.pack(side=tk.LEFT)
+
     def show_expenses_window(self):
         """عرض نافذة إدارة المصروفات"""
         expenses_window = tk.Toplevel(self.root)

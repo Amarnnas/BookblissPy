@@ -19,7 +19,7 @@ jobs:
       - name: Build with PyInstaller
         run: pyinstaller --onefile main.py   # بناء exe
       - name: Upload artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: exe
           path: dist/main.exe   # ملف exe الناتج

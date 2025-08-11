@@ -12,6 +12,624 @@ import os
 from datetime import datetime, timedelta
 import uuid
 from typing import Dict, List, Any, Optional
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+نظام إدارة المبيعات والمصروفات مع تأجير الكتب - نسخة مطورة
+Developed by Ammar
+"""
+
+import tkinter as tk
+from tkinter import messagebox, filedialog
+import ttkbootstrap as b
+from ttkbootstrap.constants import *
+import json
+import os
+from datetime import datetime, timedelta
+import uuid
+from decimal import Decimal, getcontext
+import csv
+from typing import Dict, List, Any, Optional
+
+# ضبط دقة الحسابات المالية
+getcontext().prec = 10  # Precision for Decimal calculations
+
+# --- واجهة وتصميم ---
+# استخدام نفس الألوان المطلوبة في ثيم مخصص
+THEME_NAME = 'bookbliss_theme'
+COLORS = {
+    'primary': '#060685',       # أزرق داكن للأجزاء الرئيسية
+    'secondary': '#eeca11',    # أصفر ذهبي للأزرار والعناصر الثانوية
+    'success': '#28a745',       # أخضر
+    'info': '#17a2b8',          # سماوي
+    'warning': '#ffc107',       # أصفر تحذيري
+    'danger': '#dc3545',        # أحمر
+    'light': '#f2f2f2',         # رمادي فاتح للخلفيات
+    'dark': '#343a40',          # رمادي داكن للنصوص
+    'bg': '#d4d2d2',            # خلفية النوافذ الرئيسية
+    'fg': '#333333',            # لون الخط الأساسي
+}
+
+# --- الفئة الرئيسية للتطبيق ---
+class SalesManagementSystem:
+    def __init__(self, root: b.Window):
+        self.root = root
+        self.root.title("BookBliss - نظام إدارة المكتبة والمبيعات")
+        self.root.geometry("1400x850")
+        
+        self.data_file = "bookbliss_data.json"
+        self.load_data()
+
+        self.cart = []
+        self.cart_total = Decimal('0.00')
+        
+        self.create_widgets()
+        self.update_dashboard()
+
+        # الحفظ التلقائي عند الإغلاق
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+
+    def on_closing(self):
+        """يتم استدعاؤها عند إغلاق النافذة الرئيسية."""
+        if messagebox.askokcancel("إغلاق", "هل تريد إغلاق البرنامج؟ سيتم حفظ البيانات تلقائياً."):
+            self.save_data()
+            self.root.destroy()
+
+    def load_data(self):
+        """تحميل البيانات من ملف JSON وتحويل الأرقام إلى Decimal."""
+        default_data = {"inventory": [], "sales": [], "expenses": [], "rentals": []}
+        if os.path.exists(self.data_file):
+            try:
+                with open(self.data_file, 'r', encoding='utf-8') as f:
+                    raw_data = json.load(f)
+                
+                self.data = default_data
+                self.data['inventory'] = [
+                    {**item, 'price': Decimal(item.get('price', '0'))} 
+                    for item in raw_data.get('inventory', [])
+                ]
+                self.data['sales'] = [
+                    {**sale, 'total': Decimal(sale.get('total', '0')), 
+                     'items': [{**i, 'price': Decimal(i.get('price', '0')), 'total': Decimal(i.get('total', '0'))} for i in sale.get('items', [])]}
+                    for sale in raw_data.get('sales', [])
+                ]
+                self.data['expenses'] = [
+                    {**exp, 'amount': Decimal(exp.get('amount', '0'))} 
+                    for exp in raw_data.get('expenses', [])
+                ]
+                self.data['rentals'] = [
+                    {**rent, 'amount': Decimal(rent.get('amount', '0'))}
+                    for rent in raw_data.get('rentals', [])
+                ]
+
+            except (json.JSONDecodeError, KeyError) as e:
+                messagebox.showerror("خطأ في تحميل البيانات", f"الملف تالف أو غير متوافق. سيتم إنشاء ملف جديد.\n{e}")
+                self.data = default_data
+        else:
+            self.data = default_data
+        
+        if not self.data['inventory']:
+            self.data['inventory'].append({
+                'id': str(uuid.uuid4()), 'name': 'منتج افتراضي', 'price': Decimal('500.00'), 
+                'stock': 10, 'description': 'منتج للاختبار'
+            })
+
+    def save_data(self):
+        """حفظ البيانات إلى ملف JSON مع تحويل Decimal إلى string."""
+        try:
+            data_to_save = {
+                'inventory': [{**item, 'price': str(item['price'])} for item in self.data['inventory']],
+                'sales': [
+                    {**sale, 'total': str(sale['total']), 
+                     'items': [{**i, 'price': str(i['price']), 'total': str(i['total'])} for i in sale['items']]}
+                    for sale in self.data['sales']
+                ],
+                'expenses': [{**exp, 'amount': str(exp['amount'])} for exp in self.data['expenses']],
+                'rentals': [{**rent, 'amount': str(rent['amount'])} for rent in self.data['rentals']]
+            }
+            with open(self.data_file, 'w', encoding='utf-8') as f:
+                json.dump(data_to_save, f, ensure_ascii=False, indent=4)
+        except Exception as e:
+            messagebox.showerror("خطأ في الحفظ", f"لم يتمكن من حفظ البيانات: {e}")
+
+    def parse_datetime_flexible(self, date_string: str) -> Optional[datetime]:
+        """تحليل سلسلة التاريخ بتنسيقات متعددة."""
+        formats_to_try = ["%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f", "%Y-%m-%d"]
+        for fmt in formats_to_try:
+            try:
+                return datetime.strptime(date_string, fmt)
+            except (ValueError, TypeError):
+                continue
+        return None
+
+    def create_widgets(self):
+        """إنشاء الواجهة الرئيسية باستخدام نظام التبويبات."""
+        main_pane = b.Frame(self.root, padding=10)
+        main_pane.pack(fill=BOTH, expand=YES)
+
+        self.notebook = b.Notebook(main_pane)
+        self.notebook.pack(fill=BOTH, expand=YES)
+
+        # إنشاء التبويبات
+        self.dashboard_tab = b.Frame(self.notebook, padding=10)
+        self.pos_tab = b.Frame(self.notebook, padding=10)
+        self.inventory_tab = b.Frame(self.notebook, padding=10)
+        self.rentals_tab = b.Frame(self.notebook, padding=10)
+        self.expenses_tab = b.Frame(self.notebook, padding=10)
+        self.reports_tab = b.Frame(self.notebook, padding=10)
+
+        self.notebook.add(self.dashboard_tab, text='📊  لوحة التحكم  ')
+        self.notebook.add(self.pos_tab, text='🛒  نقطة البيع  ')
+        self.notebook.add(self.inventory_tab, text='📦  المخزون  ')
+        self.notebook.add(self.rentals_tab, text='📚  الإيجارات  ')
+        self.notebook.add(self.expenses_tab, text='💰  المصروفات  ')
+        self.notebook.add(self.reports_tab, text='📈  التقارير والسجلات  ')
+
+        # بناء محتوى كل تبويب
+        self.create_dashboard_tab()
+        self.create_pos_tab()
+        self.create_inventory_tab()
+        self.create_rentals_tab()
+        self.create_expenses_tab()
+        self.create_reports_tab()
+        
+        self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_change)
+
+    def on_tab_change(self, event):
+        """تحديث البيانات عند تغيير التبويب."""
+        try:
+            selected_tab = self.notebook.tab(self.notebook.select(), "text")
+            if "لوحة التحكم" in selected_tab:
+                self.update_dashboard()
+            elif "المخزون" in selected_tab:
+                self.update_inventory_display()
+            elif "الإيجارات" in selected_tab:
+                self.update_rentals_display()
+            elif "المصروفات" in selected_tab:
+                self.update_expenses_display()
+        except tk.TclError:
+            pass
+
+    # ------------------------------------------------------------------
+    # --- تبويب لوحة التحكم ---
+    # ------------------------------------------------------------------
+    def create_dashboard_tab(self):
+        b.Label(self.dashboard_tab, text="ملخص الأداء", font=("Arial", 24, "bold"), bootstyle=DARK).pack(pady=10)
+        
+        stats_frame = b.Frame(self.dashboard_tab)
+        stats_frame.pack(fill=BOTH, expand=YES, pady=20)
+        
+        sales_frame = b.Labelframe(stats_frame, text=" ملخص اليوم ", bootstyle=SUCCESS, padding=20)
+        sales_frame.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
+        
+        stock_frame = b.Labelframe(stats_frame, text=" تنبيهات المخزون ", bootstyle=WARNING, padding=20)
+        stock_frame.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
+        
+        rentals_frame = b.Labelframe(stats_frame, text=" الإيجارات المتأخرة ", bootstyle=DANGER, padding=20)
+        rentals_frame.grid(row=0, column=2, padx=10, pady=10, sticky="nsew")
+
+        stats_frame.grid_columnconfigure((0, 1, 2), weight=1)
+
+        self.daily_sales_label = b.Label(sales_frame, text="إجمالي المبيعات: 0.00 SDG", font=("Arial", 16))
+        self.daily_sales_label.pack(pady=5)
+        self.daily_expenses_label = b.Label(sales_frame, text="إجمالي المصروفات: 0.00 SDG", font=("Arial", 16))
+        self.daily_expenses_label.pack(pady=5)
+        self.daily_profit_label = b.Label(sales_frame, text="صافي الربح: 0.00 SDG", font=("Arial", 18, "bold"))
+        self.daily_profit_label.pack(pady=10)
+
+        self.low_stock_list = b.Treeview(stock_frame, columns=("product", "stock"), show="", height=8)
+        self.low_stock_list.column("product", width=200)
+        self.low_stock_list.pack(fill=BOTH, expand=YES)
+
+        self.overdue_rentals_list = b.Treeview(rentals_frame, columns=("book", "renter"), show="", height=8)
+        self.overdue_rentals_list.column("book", width=200)
+        self.overdue_rentals_list.pack(fill=BOTH, expand=YES)
+        
+    def update_dashboard(self):
+        today = datetime.now().date()
+        
+        daily_sales = sum(s['total'] for s in self.data['sales'] if (dt := self.parse_datetime_flexible(s['date'])) and dt.date() == today)
+        daily_expenses = sum(e['amount'] for e in self.data['expenses'] if (dt := self.parse_datetime_flexible(e['date'])) and dt.date() == today)
+        profit = daily_sales - daily_expenses
+        
+        self.daily_sales_label.config(text=f"إجمالي المبيعات: {daily_sales:.2f} SDG")
+        self.daily_expenses_label.config(text=f"إجمالي المصروفات: {daily_expenses:.2f} SDG")
+        self.daily_profit_label.config(text=f"صافي الربح: {profit:.2f} SDG", bootstyle=(SUCCESS if profit >= 0 else DANGER))
+
+        for i in self.low_stock_list.get_children(): self.low_stock_list.delete(i)
+        low_stock_items = [p for p in self.data['inventory'] if p['stock'] <= 5]
+        for item in low_stock_items:
+            self.low_stock_list.insert("", END, values=(f"{item['name']}", f"المتبقي: {item['stock']}"))
+
+        for i in self.overdue_rentals_list.get_children(): self.overdue_rentals_list.delete(i)
+        overdue_rentals = [r for r in self.data['rentals'] if r['status'] == 'مُعَار' and (dt := self.parse_datetime_flexible(r['due_date'])) and dt.date() < today]
+        for rental in overdue_rentals:
+            self.overdue_rentals_list.insert("", END, values=(f"{rental['book_name']}", f"المستأجر: {rental['renter_name']}"))
+
+    # ------------------------------------------------------------------
+    # --- تبويب نقطة البيع ---
+    # ------------------------------------------------------------------
+    def create_pos_tab(self):
+        pos_pane = b.PanedWindow(self.pos_tab, orient=HORIZONTAL)
+        pos_pane.pack(fill=BOTH, expand=YES)
+
+        add_item_frame = b.Frame(pos_pane, padding=10)
+        pos_pane.add(add_item_frame, weight=1)
+
+        b.Label(add_item_frame, text="إضافة منتج للفاتورة", font=("Arial", 18, "bold")).pack(pady=10)
+        
+        form_frame = b.Frame(add_item_frame)
+        form_frame.pack(pady=20)
+        
+        b.Label(form_frame, text="المنتج:", font=("Arial", 14)).grid(row=0, column=0, padx=5, pady=10, sticky='w')
+        self.pos_product_var = b.StringVar()
+        self.pos_product_combo = b.Combobox(form_frame, textvariable=self.pos_product_var, font=("Arial", 14), width=25)
+        self.pos_product_combo.grid(row=0, column=1, padx=5, pady=10)
+        
+        b.Label(form_frame, text="الكمية:", font=("Arial", 14)).grid(row=1, column=0, padx=5, pady=10, sticky='w')
+        self.pos_quantity_var = b.StringVar(value="1")
+        b.Entry(form_frame, textvariable=self.pos_quantity_var, font=("Arial", 14), width=10).grid(row=1, column=1, padx=5, pady=10, sticky='w')
+
+        b.Button(form_frame, text="إضافة للسلة", command=self.add_to_cart, bootstyle=SUCCESS, width=20).grid(row=2, column=0, columnspan=2, pady=20)
+
+        cart_frame = b.Frame(pos_pane, padding=10)
+        pos_pane.add(cart_frame, weight=2)
+        
+        b.Label(cart_frame, text="الفاتورة الحالية", font=("Arial", 18, "bold")).pack(pady=10)
+        
+        cart_tree_frame = b.Frame(cart_frame)
+        cart_tree_frame.pack(fill=BOTH, expand=YES, pady=10)
+        
+        cart_cols = ("total", "price", "quantity", "product")
+        self.cart_tree = b.Treeview(cart_tree_frame, columns=cart_cols, show='headings', height=10, bootstyle=PRIMARY)
+        self.cart_tree.heading("product", text="المنتج")
+        self.cart_tree.heading("quantity", text="الكمية")
+        self.cart_tree.heading("price", text="السعر")
+        self.cart_tree.heading("total", text="الإجمالي")
+        self.cart_tree.pack(side=LEFT, fill=BOTH, expand=YES)
+        
+        checkout_frame = b.Frame(cart_frame)
+        checkout_frame.pack(fill=X, pady=10)
+        
+        self.cart_total_label = b.Label(checkout_frame, text="الإجمالي: 0.00 SDG", font=("Arial", 18, "bold"), bootstyle=SUCCESS)
+        self.cart_total_label.pack(pady=10)
+        
+        payment_details_frame = b.Frame(checkout_frame)
+        payment_details_frame.pack(pady=10)
+        
+        b.Label(payment_details_frame, text="العميل:", font=("Arial", 14)).grid(row=0, column=0, padx=5, pady=5)
+        self.pos_customer_var = b.StringVar()
+        b.Entry(payment_details_frame, textvariable=self.pos_customer_var, font=("Arial", 14)).grid(row=0, column=1, padx=5, pady=5)
+        
+        b.Label(payment_details_frame, text="الدفع:", font=("Arial", 14)).grid(row=1, column=0, padx=5, pady=5)
+        self.pos_payment_var = b.StringVar(value="نقداً")
+        payment_combo = b.Combobox(payment_details_frame, textvariable=self.pos_payment_var, font=("Arial", 14), values=["نقداً", "آجل", "حساب بنكي"])
+        payment_combo.grid(row=1, column=1, padx=5, pady=5)
+        
+        action_buttons_frame = b.Frame(checkout_frame)
+        action_buttons_frame.pack(pady=20)
+        b.Button(action_buttons_frame, text="إتمام البيع", command=self.checkout, bootstyle=SUCCESS, width=15).pack(side=LEFT, padx=10)
+        b.Button(action_buttons_frame, text="مسح السلة", command=self.clear_cart, bootstyle=DANGER, width=15).pack(side=LEFT, padx=10)
+    
+    def add_to_cart(self):
+        product_name = self.pos_product_var.get()
+        quantity_str = self.pos_quantity_var.get()
+        
+        if not product_name or not quantity_str:
+            messagebox.showwarning("نقص في المعلومات", "يرجى اختيار منتج وتحديد الكمية.")
+            return
+
+        try:
+            quantity = int(quantity_str)
+            if quantity <= 0: raise ValueError
+        except ValueError:
+            messagebox.showerror("خطأ", "الكمية يجب أن تكون رقماً صحيحاً وأكبر من صفر.")
+            return
+        
+        product = next((p for p in self.data['inventory'] if p['name'] == product_name), None)
+        if not product:
+            messagebox.showerror("خطأ", "المنتج المحدد غير موجود.")
+            return
+            
+        if product['stock'] < quantity:
+            messagebox.showwarning("المخزون لا يكفي", f"الكمية المطلوبة ({quantity}) أكبر من المتوفر ({product['stock']}).")
+            return
+
+        existing_item = next((item for item in self.cart if item['id'] == product['id']), None)
+        if existing_item:
+            existing_item['quantity'] += quantity
+        else:
+            self.cart.append({'id': product['id'], 'name': product['name'], 'price': product['price'], 'quantity': quantity})
+        
+        self.update_cart_display()
+        self.pos_product_var.set('')
+        self.pos_quantity_var.set('1')
+
+    def update_cart_display(self):
+        for i in self.cart_tree.get_children(): self.cart_tree.delete(i)
+        
+        self.cart_total = Decimal('0.00')
+        for item in self.cart:
+            item_total = item['price'] * item['quantity']
+            self.cart_tree.insert("", END, values=(f"{item_total:.2f}", f"{item['price']:.2f}", item['quantity'], item['name']))
+            self.cart_total += item_total
+            
+        self.cart_total_label.config(text=f"الإجمالي: {self.cart_total:.2f} SDG")
+
+    def clear_cart(self):
+        if self.cart and messagebox.askyesno("تأكيد", "هل تريد بالتأكيد إفراغ السلة؟"):
+            self.cart = []
+            self.update_cart_display()
+
+    def checkout(self):
+        if not self.cart:
+            messagebox.showwarning("السلة فارغة", "لا يمكن إتمام البيع لأن السلة فارغة.")
+            return
+
+        payment_method = self.pos_payment_var.get()
+        bank_details = None
+
+        if payment_method == "حساب بنكي":
+            bank_details = self.ask_bank_details()
+            if not bank_details:
+                return
+
+        sale_record = {
+            'id': str(uuid.uuid4()),
+            'date': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'customer': self.pos_customer_var.get().strip() or "عميل نقدي",
+            'payment_method': payment_method,
+            'status': 'مدفوعة' if payment_method != 'آجل' else 'آجل',
+            'items': [{'id': i['id'], 'name': i['name'], 'price': i['price'], 'quantity': i['quantity'], 'total': i['price'] * i['quantity']} for i in self.cart],
+            'total': self.cart_total,
+            'bank_details': bank_details
+        }
+
+        for item in self.cart:
+            product = next((p for p in self.data['inventory'] if p['id'] == item['id']), None)
+            if product:
+                product['stock'] -= item['quantity']
+        
+        self.data['sales'].append(sale_record)
+        self.save_data()
+        
+        messagebox.showinfo("نجاح", f"تم تسجيل الفاتورة بنجاح برقم: {sale_record['id'][:8]}")
+
+        self.cart = []
+        self.update_cart_display()
+        self.pos_customer_var.set('')
+        self.update_dashboard()
+
+    def ask_bank_details(self):
+        dialog = b.Toplevel(self.root, title="تفاصيل الدفع البنكي")
+        dialog.geometry("400x250")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        result = {}
+
+        b.Label(dialog, text="اسم البنك:", font=("Arial", 12)).pack(pady=5)
+        bank_name_var = b.StringVar()
+        b.Entry(dialog, textvariable=bank_name_var, font=("Arial", 12)).pack(pady=5, padx=20, fill=X)
+        
+        b.Label(dialog, text="رقم العملية:", font=("Arial", 12)).pack(pady=5)
+        trans_id_var = b.StringVar()
+        b.Entry(dialog, textvariable=trans_id_var, font=("Arial", 12)).pack(pady=5, padx=20, fill=X)
+        
+        def on_ok():
+            if not bank_name_var.get() or not trans_id_var.get():
+                messagebox.showwarning("نقص", "يرجى ملء جميع الحقول.", parent=dialog)
+                return
+            result['bank_name'] = bank_name_var.get()
+            result['transaction_id'] = trans_id_var.get()
+            dialog.destroy()
+
+        ok_button = b.Button(dialog, text="موافق", command=on_ok, bootstyle=SUCCESS)
+        ok_button.pack(pady=20)
+        
+        self.root.wait_window(dialog)
+        return result if 'bank_name' in result else None
+
+    # ------------------------------------------------------------------
+    # --- تبويب المخزون ---
+    # ------------------------------------------------------------------
+    def create_inventory_tab(self):
+        b.Label(self.inventory_tab, text="إدارة المخزون", font=("Arial", 24, "bold"), bootstyle=DARK).pack(pady=10)
+        
+        control_frame = b.Frame(self.inventory_tab)
+        control_frame.pack(fill=X, pady=10)
+        b.Button(control_frame, text="إضافة منتج جديد", command=lambda: self.add_or_edit_product_dialog(), bootstyle=SUCCESS).pack(side=RIGHT, padx=5)
+        b.Button(control_frame, text="تعديل المنتج المحدد", command=self.edit_selected_product, bootstyle=INFO).pack(side=RIGHT, padx=5)
+        b.Button(control_frame, text="حذف المنتج المحدد", command=self.delete_selected_product, bootstyle=DANGER).pack(side=RIGHT, padx=5)
+        
+        tree_frame = b.Frame(self.inventory_tab)
+        tree_frame.pack(fill=BOTH, expand=YES, pady=10)
+        
+        inv_cols = ('description', 'stock', 'price', 'name')
+        self.inventory_tree = b.Treeview(tree_frame, columns=inv_cols, show='headings', bootstyle=PRIMARY)
+        self.inventory_tree.heading('name', text='اسم المنتج')
+        self.inventory_tree.heading('price', text='السعر (SDG)')
+        self.inventory_tree.heading('stock', text='الكمية المتاحة')
+        self.inventory_tree.heading('description', text='الوصف')
+        self.inventory_tree.pack(fill=BOTH, expand=YES, side=LEFT)
+        
+        scrollbar = b.Scrollbar(tree_frame, orient=VERTICAL, command=self.inventory_tree.yview)
+        self.inventory_tree.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side=RIGHT, fill=Y)
+
+    def update_inventory_display(self):
+        for i in self.inventory_tree.get_children(): self.inventory_tree.delete(i)
+        for item in sorted(self.data['inventory'], key=lambda x: x['name']):
+            self.inventory_tree.insert("", END, iid=item['id'], values=(item.get('description', ''), item['stock'], f"{item['price']:.2f}", item['name']))
+        
+        product_names = [item['name'] for item in self.data['inventory'] if item['stock'] > 0]
+        self.pos_product_combo['values'] = product_names
+
+    def add_or_edit_product_dialog(self, product=None):
+        is_edit = product is not None
+        dialog = b.Toplevel(self.root, title="تعديل منتج" if is_edit else "إضافة منتج جديد")
+        dialog.geometry("500x400")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        frame = b.Frame(dialog, padding=20)
+        frame.pack(fill=BOTH, expand=YES)
+        
+        fields = {"اسم المنتج": b.StringVar(value=product['name'] if is_edit else ""),
+                  "السعر": b.StringVar(value=str(product['price']) if is_edit else ""),
+                  "الكمية": b.StringVar(value=str(product['stock']) if is_edit else ""),
+                  "الوصف": b.StringVar(value=product.get('description', '') if is_edit else "")}
+
+        for i, (label, var) in enumerate(fields.items()):
+            b.Label(frame, text=label, font=("Arial", 12)).grid(row=i, column=0, padx=10, pady=10, sticky='w')
+            b.Entry(frame, textvariable=var, font=("Arial", 12)).grid(row=i, column=1, padx=10, pady=10, sticky='ew')
+        
+        frame.grid_columnconfigure(1, weight=1)
+
+        def save():
+            name = fields["اسم المنتج"].get().strip()
+            price_str = fields["السعر"].get().strip()
+            stock_str = fields["الكمية"].get().strip()
+            
+            if not all([name, price_str, stock_str]):
+                messagebox.showerror("خطأ", "يجب ملء حقول الاسم والسعر والكمية.", parent=dialog)
+                return
+            
+            try:
+                price = Decimal(price_str)
+                stock = int(stock_str)
+            except Exception:
+                messagebox.showerror("خطأ", "السعر والكمية يجب أن تكون أرقاماً صالحة.", parent=dialog)
+                return
+
+            name_lower = name.lower()
+            for p in self.data['inventory']:
+                if p['name'].lower() == name_lower and (not is_edit or p['id'] != product['id']):
+                    messagebox.showerror("خطأ", "اسم المنتج موجود بالفعل.", parent=dialog)
+                    return
+
+            if is_edit:
+                product.update({'name': name, 'price': price, 'stock': stock, 'description': fields["الوصف"].get().strip()})
+            else:
+                self.data['inventory'].append({'id': str(uuid.uuid4()), 'name': name, 'price': price, 'stock': stock, 'description': fields["الوصف"].get().strip()})
+            
+            self.save_data()
+            self.update_inventory_display()
+            self.update_dashboard()
+            dialog.destroy()
+
+        b.Button(frame, text="حفظ", command=save, bootstyle=SUCCESS).grid(row=len(fields), column=0, columnspan=2, pady=20)
+
+    def edit_selected_product(self):
+        if not self.inventory_tree.selection():
+            messagebox.showwarning("تنبيه", "يرجى تحديد منتج لتعديله.")
+            return
+        prod_id = self.inventory_tree.selection()[0]
+        product = next((p for p in self.data['inventory'] if p['id'] == prod_id), None)
+        if product:
+            self.add_or_edit_product_dialog(product)
+
+    def delete_selected_product(self):
+        if not self.inventory_tree.selection():
+            messagebox.showwarning("تنبيه", "يرجى تحديد منتج لحذفه.")
+            return
+        prod_id = self.inventory_tree.selection()[0]
+        product = next((p for p in self.data['inventory'] if p['id'] == prod_id), None)
+        if product and messagebox.askyesno("تأكيد الحذف", f"هل تريد بالتأكيد حذف المنتج '{product['name']}'؟"):
+            self.data['inventory'] = [p for p in self.data['inventory'] if p['id'] != prod_id]
+            self.save_data()
+            self.update_inventory_display()
+            self.update_dashboard()
+
+    # ------------------------------------------------------------------
+    # --- تبويب الإيجارات ---
+    # ------------------------------------------------------------------
+    def create_rentals_tab(self):
+        b.Label(self.rentals_tab, text="إدارة إيجارات الكتب", font=("Arial", 24, "bold"), bootstyle=DARK).pack(pady=10)
+        pass
+
+    # ------------------------------------------------------------------
+    # --- تبويب المصروفات ---
+    # ------------------------------------------------------------------
+    def create_expenses_tab(self):
+        b.Label(self.expenses_tab, text="إدارة المصروفات", font=("Arial", 24, "bold"), bootstyle=DARK).pack(pady=10)
+        pass
+
+    # ------------------------------------------------------------------
+    # --- تبويب التقارير ---
+    # ------------------------------------------------------------------
+    def create_reports_tab(self):
+        b.Label(self.reports_tab, text="التقارير والسجلات", font=("Arial", 24, "bold"), bootstyle=DARK).pack(pady=10)
+        
+        export_frame = b.Frame(self.reports_tab)
+        export_frame.pack(fill=X, pady=20)
+        b.Button(export_frame, text="تصدير المبيعات إلى Excel", command=self.export_sales_to_csv, bootstyle=(INFO, OUTLINE)).pack(side=RIGHT, padx=10)
+        b.Button(export_frame, text="تصدير المصروفات إلى Excel", command=self.export_expenses_to_csv, bootstyle=(INFO, OUTLINE)).pack(side=RIGHT, padx=10)
+        pass
+
+    def export_sales_to_csv(self):
+        if not self.data['sales']:
+            messagebox.showinfo("لا توجد بيانات", "سجل المبيعات فارغ.")
+            return
+        
+        file_path = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV files", "*.csv")], title="تصدير المبيعات")
+        if not file_path: return
+        
+        try:
+            with open(file_path, 'w', newline='', encoding='utf-8-sig') as f:
+                writer = csv.writer(f)
+                writer.writerow(['رقم الفاتورة', 'التاريخ', 'العميل', 'طريقة الدفع', 'الحالة', 'اسم المنتج', 'الكمية', 'السعر', 'الإجمالي للمنتج', 'الإجمالي للفاتورة'])
+                for sale in self.data['sales']:
+                    for item in sale['items']:
+                        writer.writerow([
+                            sale['id'], sale['date'], sale['customer'], sale['payment_method'], sale['status'],
+                            item['name'], item['quantity'], item['price'], item['total'], sale['total']
+                        ])
+            messagebox.showinfo("نجاح", f"تم تصدير المبيعات بنجاح إلى:\n{file_path}")
+        except Exception as e:
+            messagebox.showerror("خطأ", f"فشل تصدير البيانات: {e}")
+
+    def export_expenses_to_csv(self):
+        if not self.data['expenses']:
+            messagebox.showinfo("لا توجد بيانات", "سجل المصروفات فارغ.")
+            return
+        
+        file_path = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[("CSV files", "*.csv")], title="تصدير المصروفات")
+        if not file_path: return
+
+        try:
+            with open(file_path, 'w', newline='', encoding='utf-8-sig') as f:
+                writer = csv.writer(f)
+                writer.writerow(['التاريخ', 'الوصف', 'المبلغ (SDG)'])
+                for exp in self.data['expenses']:
+                    writer.writerow([exp['date'], exp['description'], exp['amount']])
+            messagebox.showinfo("نجاح", f"تم تصدير المصروفات بنجاح إلى:\n{file_path}")
+        except Exception as e:
+            messagebox.showerror("خطأ", f"فشل تصدير البيانات: {e}")
+            
+    def update_rentals_display(self): pass
+    def update_expenses_display(self): pass
+
+
+if __name__ == "__main__":
+    # Create the main window first, using a standard theme as a base
+    app = b.Window(themename="litera")
+    
+    # Get the style object associated with the window
+    style = app.style
+    
+    # Define the custom theme using the COLORS dictionary
+    # This registers the new theme name
+    style.configure(THEME_NAME, colors=COLORS)
+    
+    # Now, explicitly switch the window's theme to our newly created theme
+    style.theme_use(THEME_NAME)
+    
+    # Instantiate the main application class
+    SalesManagementSystem(app)
+    
+    # Start the Tkinter main loop
+    app.mainloop()
 
 # الألوان والتصميم
 COLORS = {
